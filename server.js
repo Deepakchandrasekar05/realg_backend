@@ -33,7 +33,9 @@ db.getConnection((err, connection) => {
   }
 });
 
-
+app.get('/', (req, res) => {
+  res.send('Backend is live!');
+});
 // ============================
 // 📌 ATTENDANCE ENDPOINTS
 // ============================
