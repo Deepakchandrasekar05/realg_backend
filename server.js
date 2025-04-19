@@ -33,6 +33,13 @@ db.getConnection((err, connection) => {
   }
 });
 
+app.get("/api/dbtest", (req, res) => {
+  db.query("SELECT 1", (err, results) => {
+    if (err) return res.status(500).json({ error: "DB test failed" });
+    res.json({ success: true });
+  });
+});
+
 app.get('/', (req, res) => {
   res.send('Backend is live!');
 });
