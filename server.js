@@ -12,6 +12,8 @@ app.use(bodyParser.json());
 let latestAlert= null;
 let latestGPS= null;
 
+let fenceDetected= false;
+
 // MySQL Database Connection with Pooling
 const db = mysql.createPool({
   host: process.env.MYSQLHOST,
@@ -110,11 +112,9 @@ app.get("/api/alert", (req, res) => {
 });
 
 // Reset latest alert (e.g., after dismiss)
-app.delete("/api/alert", (req, res) => {
-  latestAlert = null;
-  console.log("✅ Alert dismissed by user.");
-  res.json({ message: "Alert dismissed successfully" });
-});
+
+
+
 
 // Clear alert
 app.post("/api/alert/clear", (req, res) => {
@@ -145,6 +145,20 @@ app.get("/api/gps", (req, res) => {
   res.json({ gps: latestGPS ?? "" });
 });
 
+
+app.post('/api/fence/breach', (req, res) => {
+  fenceDetected = true;
+  res.status(200).json({ success: true });
+});
+
+app.get('/api/fence', (req, res) => {
+  res.json({ breach: fenceDetected });
+});
+
+app.post('/api/fence/clear', (req, res) => {
+  fenceDetected = false;
+  res.status(200).json({ success: true });
+});
 
 // ============================
 // 🚀 SERVER INIT
