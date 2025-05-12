@@ -88,16 +88,28 @@ app.post("/api/attendance", (req, res) => {
 // Save alert with GPS
 // Save alert with structured LoRa JSON (device_id, lat, lon)
 app.post("/api/alert", (req, res) => {
-  const { device_id, lat, lon } = req.body;
-
-  if (!device_id || !lat || !lon) {
-    return res.status(400).json({ error: "Missing device_id, lat, or lon" });
-  }
-
-  latestAlert = { device_id, lat, lon };
-  console.log(`🚨 SOS ALERT received:`, latestAlert);
-
-  res.json({ message: "Alert received", alert: latestAlert });
+    const { device_id, lat, lon } = req.body;
+  
+    if (!device_id || !lat || !lon) {
+      return res.status(400).json({ error: "Missing device_id, lat, or lon" });
+    }
+  
+    const newAlert = {
+      type: "SOS",
+      device_id,
+      lat,
+      lon,
+      timestamp: new Date().toISOString()
+    };
+  
+    latestAlert = newAlert;
+    alertsHistory.unshift(newAlert);
+    if (alertsHistory.length > MAX_ALERTS_HISTORY) {
+      alertsHistory.pop();
+    }
+  
+    console.log(`🚨 SOS ALERT received:`, newAlert);
+    res.json({ message: "Alert received", alert: newAlert });
 });
 
 
@@ -147,9 +159,27 @@ app.get("/api/gps", (req, res) => {
 
 
 app.post('/api/fence/breach', (req, res) => {
-  fenceDetected = true;
-  res.status(200).json({ success: true });
+    const { device_id, lat, lon } = req.body;
+    
+    fenceDetected = true;
+    
+    const newAlert = {
+      type: "GEOFENCE",
+      device_id: device_id || "unknown",
+      lat: lat || null,
+      lon: lon || null,
+      timestamp: new Date().toISOString()
+    };
+  
+    alertsHistory.unshift(newAlert);
+    if (alertsHistory.length > MAX_ALERTS_HISTORY) {
+      alertsHistory.pop();
+    }
+  
+    console.log(`🚧 GEOFENCE BREACH detected:`, newAlert);
+    res.status(200).json({ success: true });
 });
+
 
 app.get('/api/fence', (req, res) => {
   res.json({ breach: fenceDetected });
@@ -160,6 +190,16 @@ app.post('/api/fence/clear', (req, res) => {
   res.status(200).json({ success: true });
 });
 
+
+app.get("/api/alerts/history", (req, res) => {
+    res.json(alertsHistory);
+  });
+  
+  app.delete("/api/alerts/history", (req, res) => {
+    alertsHistory.length = 0;
+    res.json({ message: "Alerts history cleared" });
+  });
+
 // ============================
 // 🚀 SERVER INIT
 // ============================
@@ -167,3 +207,4 @@ app.post('/api/fence/clear', (req, res) => {
 app.listen(3000, "0.0.0.0", () =>
   console.log("🌐 Backend server running on http://localhost:3000")
 );
+
