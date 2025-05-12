@@ -13,6 +13,8 @@ let latestAlert= null;
 let latestGPS= null;
 
 let fenceDetected= false;
+const alertsHistory = [];
+const MAX_ALERTS_HISTORY = 100;
 
 // MySQL Database Connection with Pooling
 const db = mysql.createPool({
