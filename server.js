@@ -8,13 +8,18 @@ const app = express();
 app.use(cors());
 app.use(bodyParser.json());
 
-// In-memory storage
-let latestAlert= null;
-let latestGPS= null;
+// ============================
+// 🗄️ IN-MEMORY STORAGE (For Alerts)
+// ============================
+let latestAlert = null;
+let latestGPS = null;
+let fenceDetected = false;
+const alertsHistory = [];
+const MAX_ALERTS_HISTORY = 100;
 
-let fenceDetected= false;
-
-// MySQL Database Connection with Pooling
+// ============================
+// 🗃️ MYSQL CONNECTION (For Attendance)
+// ============================
 const db = mysql.createPool({
   host: process.env.MYSQLHOST,
   user: process.env.MYSQLUSER,
@@ -36,6 +41,13 @@ db.getConnection((err, connection) => {
   }
 });
 
+// ============================
+// 🏠 BASIC ENDPOINTS
+// ============================
+app.get('/', (req, res) => {
+  res.send('Backend is live!');
+});
+
 app.get("/api/dbtest", (req, res) => {
   db.query("SELECT 1", (err, results) => {
     if (err) return res.status(500).json({ error: "DB test failed" });
@@ -43,14 +55,9 @@ app.get("/api/dbtest", (req, res) => {
   });
 });
 
-app.get('/', (req, res) => {
-  res.send('Backend is live!');
-});
 // ============================
-// 📌 ATTENDANCE ENDPOINTS
+// 👥 ATTENDANCE ENDPOINTS
 // ============================
-
-// Fetch all attendance records
 app.get("/api/attendance", (req, res) => {
   const query = "SELECT * FROM attendance";
   db.query(query, (err, results) => {
@@ -62,9 +69,8 @@ app.get("/api/attendance", (req, res) => {
   });
 });
 
-// Add attendance entry
 app.post("/api/attendance", (req, res) => {
-  const { uid, name} = req.body;
+  const { uid, name } = req.body;
 
   if (!uid || !name) {
     return res.status(400).json({ error: "Missing required fields" });
@@ -80,13 +86,9 @@ app.post("/api/attendance", (req, res) => {
   });
 });
 
-
 // ============================
 // 🚨 SOS ALERT ENDPOINTS
 // ============================
-
-// Save alert with GPS
-// Save alert with structured LoRa JSON (device_id, lat, lon)
 app.post("/api/alert", (req, res) => {
   const { device_id, lat, lon } = req.body;
 
@@ -94,40 +96,39 @@ app.post("/api/alert", (req, res) => {
     return res.status(400).json({ error: "Missing device_id, lat, or lon" });
   }
 
-  latestAlert = { device_id, lat, lon };
-  console.log(`🚨 SOS ALERT received:`, latestAlert);
+  const newAlert = {
+    type: "SOS",
+    device_id,
+    lat,
+    lon,
+    timestamp: new Date().toISOString()
+  };
 
-  res.json({ message: "Alert received", alert: latestAlert });
-});
-
-
-// Get latest alert
-// Get latest structured alert
-app.get("/api/alert", (req, res) => {
-  if (!latestAlert) {
-    return res.json({ message: "No active alerts currently." });
+  latestAlert = newAlert;
+  alertsHistory.unshift(newAlert);
+  if (alertsHistory.length > MAX_ALERTS_HISTORY) {
+    alertsHistory.pop();
   }
 
-  res.json({ alert: latestAlert });
+  console.log(`🚨 SOS ALERT received:`, newAlert);
+  res.json({ message: "Alert received", alert: newAlert });
 });
 
-// Reset latest alert (e.g., after dismiss)
+app.get("/api/alert", (req, res) => {
+  res.json({ 
+    alert: latestAlert || null,
+    message: latestAlert ? "Active alert" : "No active alerts"
+  });
+});
 
-
-
-
-// Clear alert
 app.post("/api/alert/clear", (req, res) => {
   latestAlert = null;
   res.json({ message: "Alert cleared" });
 });
 
-
 // ============================
 // 📍 GPS LOCATION ENDPOINTS
 // ============================
-
-// Save latest GPS location from ESP32
 app.post("/api/gps", (req, res) => {
   const { gps } = req.body;
 
@@ -140,14 +141,32 @@ app.post("/api/gps", (req, res) => {
   res.json({ message: "GPS stored successfully" });
 });
 
-// Get latest GPS location for map
 app.get("/api/gps", (req, res) => {
-  res.json({ gps: latestGPS ?? "" });
+  res.json({ gps: latestGPS || null });
 });
 
-
+// ============================
+// 🚧 GEOFENCE ENDPOINTS
+// ============================
 app.post('/api/fence/breach', (req, res) => {
+  const { device_id, lat, lon } = req.body;
+  
   fenceDetected = true;
+  
+  const newAlert = {
+    type: "GEOFENCE",
+    device_id: device_id || "unknown",
+    lat: lat || null,
+    lon: lon || null,
+    timestamp: new Date().toISOString()
+  };
+
+  alertsHistory.unshift(newAlert);
+  if (alertsHistory.length > MAX_ALERTS_HISTORY) {
+    alertsHistory.pop();
+  }
+
+  console.log(`🚧 GEOFENCE BREACH detected:`, newAlert);
   res.status(200).json({ success: true });
 });
 
@@ -161,9 +180,21 @@ app.post('/api/fence/clear', (req, res) => {
 });
 
 // ============================
+// 📜 ALERTS HISTORY ENDPOINTS
+// ============================
+app.get("/api/alerts/history", (req, res) => {
+  res.json(alertsHistory);
+});
+
+app.delete("/api/alerts/history", (req, res) => {
+  alertsHistory.length = 0;
+  res.json({ message: "Alerts history cleared" });
+});
+
+// ============================
 // 🚀 SERVER INIT
 // ============================
-
-app.listen(3000, "0.0.0.0", () =>
-  console.log("🌐 Backend server running on http://localhost:3000")
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, "0.0.0.0", () =>
+  console.log(`🌐 Backend server running on http://localhost:${PORT}`)
 );
