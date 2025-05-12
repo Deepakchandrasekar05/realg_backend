@@ -225,6 +225,41 @@ app.get("/api/alerts/history", (req, res) => {
     res.json({ message: "Alerts history cleared" });
   });
 
+// Add these new endpoints:
+
+// Get all attendance records with latest timestamp only
+app.get("/api/attendance/latest", (req, res) => {
+  const query = `
+    SELECT a.* FROM attendance a
+    INNER JOIN (
+      SELECT uid, MAX(timestamp) as latest_timestamp 
+      FROM attendance 
+      GROUP BY uid
+    ) b ON a.uid = b.uid AND a.timestamp = b.latest_timestamp
+    ORDER BY a.timestamp DESC
+  `;
+  db.query(query, (err, results) => {
+    if (err) {
+      console.error("Database Query Failed:", err);
+      return res.status(500).json({ error: "Database query failed" });
+    }
+    res.json(results);
+  });
+});
+
+// Get all timestamps for a specific UID
+app.get("/api/attendance/history/:uid", (req, res) => {
+  const { uid } = req.params;
+  const query = "SELECT * FROM attendance WHERE uid = ? ORDER BY timestamp DESC";
+  db.query(query, [uid], (err, results) => {
+    if (err) {
+      console.error("Database Query Failed:", err);
+      return res.status(500).json({ error: "Database query failed" });
+    }
+    res.json(results);
+  });
+});
+
 // ============================
 // 🚀 SERVER INIT
 // ============================
