@@ -66,6 +66,7 @@ app.get("/api/attendance", (req, res) => {
 
 // Add attendance entry
 // Update the attendance endpoint
+// Update the attendance endpoint to prevent duplicates
 app.post("/api/attendance", (req, res) => {
   const { uid, name } = req.body;
 
@@ -73,8 +74,15 @@ app.post("/api/attendance", (req, res) => {
     return res.status(400).json({ error: "Missing required fields" });
   }
 
-  // First check if the UID already exists
-  const checkQuery = "SELECT * FROM attendance WHERE uid = ?";
+  // First check if the UID already has a recent entry (within 1 minute)
+  const checkQuery = `
+    SELECT * FROM attendance 
+    WHERE uid = ? 
+    AND timestamp > DATE_SUB(NOW(), INTERVAL 1 MINUTE)
+    ORDER BY timestamp DESC 
+    LIMIT 1
+  `;
+  
   db.query(checkQuery, [uid], (err, results) => {
     if (err) {
       console.error("Database Query Failed:", err);
@@ -82,24 +90,41 @@ app.post("/api/attendance", (req, res) => {
     }
 
     if (results.length > 0) {
-      // UID exists, update the timestamp
-      const updateQuery = "UPDATE attendance SET timestamp = NOW() WHERE uid = ?";
-      db.query(updateQuery, [uid], (err, result) => {
-        if (err) {
-          console.error("Database Update Failed:", err);
-          return res.status(500).json({ error: "Failed to update attendance" });
-        }
-        res.json({ message: "Attendance timestamp updated successfully!" });
+      // Recent entry exists, don't create a new one
+      return res.json({ 
+        message: "Recent scan already recorded", 
+        lastScan: results[0].timestamp 
       });
     } else {
-      // UID doesn't exist, insert new record
-      const insertQuery = "INSERT INTO attendance (uid, name) VALUES (?, ?)";
-      db.query(insertQuery, [uid, name], (err, result) => {
+      // No recent entry, check if UID exists at all
+      const uidCheckQuery = "SELECT * FROM attendance WHERE uid = ?";
+      db.query(uidCheckQuery, [uid], (err, uidResults) => {
         if (err) {
-          console.error("Database Insert Failed:", err);
-          return res.status(500).json({ error: "Failed to insert data" });
+          console.error("Database Query Failed:", err);
+          return res.status(500).json({ error: "Database query failed" });
         }
-        res.json({ message: "Attendance recorded successfully!" });
+
+        if (uidResults.length > 0) {
+          // UID exists but not recent, update the timestamp
+          const updateQuery = "UPDATE attendance SET timestamp = NOW() WHERE uid = ?";
+          db.query(updateQuery, [uid], (err, result) => {
+            if (err) {
+              console.error("Database Update Failed:", err);
+              return res.status(500).json({ error: "Failed to update attendance" });
+            }
+            res.json({ message: "Attendance timestamp updated successfully!" });
+          });
+        } else {
+          // UID doesn't exist, insert new record
+          const insertQuery = "INSERT INTO attendance (uid, name) VALUES (?, ?)";
+          db.query(insertQuery, [uid, name], (err, result) => {
+            if (err) {
+              console.error("Database Insert Failed:", err);
+              return res.status(500).json({ error: "Failed to insert data" });
+            }
+            res.json({ message: "Attendance recorded successfully!" });
+          });
+        }
       });
     }
   });
