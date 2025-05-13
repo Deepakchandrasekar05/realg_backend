@@ -70,37 +70,72 @@ app.get("/api/attendance", (req, res) => {
   });
 });
 
-// Add attendance entry
-// Update the attendance endpoint
-// Update the attendance endpoint to prevent duplicates
-// Update the attendance endpoint with comprehensive duplicate prevention
-app.post("/api/attendance", async (req, res) => {
+// Update the attendance endpoint to better handle duplicates
+app.post("/api/attendance", (req, res) => {
   const { uid, name } = req.body;
 
   if (!uid || !name) {
     return res.status(400).json({ error: "Missing required fields" });
   }
 
-  try {
-    // 1. Check if this UID already exists
-    const checkQuery = "SELECT id FROM attendance WHERE uid = ? LIMIT 1";
-    const [existing] = await db.promise().query(checkQuery, [uid]);
-
-    if (existing.length > 0) {
-      // 2. Update existing record's timestamp
-      const updateQuery = "UPDATE attendance SET timestamp = NOW() WHERE uid = ?";
-      await db.promise().query(updateQuery, [uid]);
-      return res.json({ message: "Scan time updated successfully!" });
-    } else {
-      // 3. Insert new record if doesn't exist
-      const insertQuery = "INSERT INTO attendance (uid, name) VALUES (?, ?)";
-      await db.promise().query(insertQuery, [uid, name]);
-      return res.json({ message: "New worker registered successfully!" });
+  // First check if there's a recent entry for this UID (within last minute)
+  const checkQuery = `
+    SELECT * FROM attendance 
+    WHERE uid = ? 
+    AND timestamp > DATE_SUB(NOW(), INTERVAL 1 MINUTE)
+    ORDER BY timestamp DESC
+    LIMIT 1
+  `;
+  
+  db.query(checkQuery, [uid], (err, results) => {
+    if (err) {
+      console.error("Database Query Failed:", err);
+      return res.status(500).json({ error: "Database query failed" });
     }
-  } catch (err) {
-    console.error("Database Error:", err);
-    return res.status(500).json({ error: "Database operation failed" });
-  }
+
+    if (results.length > 0) {
+      // Recent entry exists, don't create a new one
+      return res.json({ 
+        message: "Duplicate scan ignored (recent entry exists)",
+        existingRecord: results[0]
+      });
+    } else {
+      // No recent entry, check if UID exists at all
+      const uidCheckQuery = "SELECT * FROM attendance WHERE uid = ? LIMIT 1";
+      db.query(uidCheckQuery, [uid], (err, uidResults) => {
+        if (err) {
+          console.error("Database Query Failed:", err);
+          return res.status(500).json({ error: "Database query failed" });
+        }
+
+        if (uidResults.length > 0) {
+          // UID exists but not recent, update the name and timestamp
+          const updateQuery = `
+            UPDATE attendance 
+            SET name = ?, timestamp = NOW() 
+            WHERE uid = ?
+          `;
+          db.query(updateQuery, [name, uid], (err, result) => {
+            if (err) {
+              console.error("Database Update Failed:", err);
+              return res.status(500).json({ error: "Failed to update attendance" });
+            }
+            res.json({ message: "Attendance updated successfully!" });
+          });
+        } else {
+          // UID doesn't exist, insert new record
+          const insertQuery = "INSERT INTO attendance (uid, name) VALUES (?, ?)";
+          db.query(insertQuery, [uid, name], (err, result) => {
+            if (err) {
+              console.error("Database Insert Failed:", err);
+              return res.status(500).json({ error: "Failed to insert data" });
+            }
+            res.json({ message: "Attendance recorded successfully!" });
+          });
+        }
+      });
+    }
+  });
 });
 
 
