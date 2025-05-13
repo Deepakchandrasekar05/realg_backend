@@ -54,7 +54,13 @@ app.get('/', (req, res) => {
 
 // Fetch all attendance records
 app.get("/api/attendance", (req, res) => {
-  const query = "SELECT * FROM attendance";
+  const query = `
+    SELECT id, uid, name, MAX(timestamp) as last_scan_time
+    FROM attendance
+    GROUP BY uid
+    ORDER BY last_scan_time DESC
+  `;
+  
   db.query(query, (err, results) => {
     if (err) {
       console.error("Database Query Failed:", err);
@@ -76,47 +82,21 @@ app.post("/api/attendance", async (req, res) => {
   }
 
   try {
-    // 1. First check for any entry with this UID in the last 5 minutes
-    const recentCheckQuery = `
-      SELECT id, timestamp 
-      FROM attendance 
-      WHERE uid = ? 
-      AND timestamp > DATE_SUB(NOW(), INTERVAL 5 MINUTE)
-      ORDER BY timestamp DESC 
-      LIMIT 1
-    `;
+    // 1. Check if this UID already exists
+    const checkQuery = "SELECT id FROM attendance WHERE uid = ? LIMIT 1";
+    const [existing] = await db.promise().query(checkQuery, [uid]);
 
-    const [recentResults] = await db.promise().query(recentCheckQuery, [uid]);
-
-    if (recentResults.length > 0) {
-      return res.json({
-        message: "Duplicate scan prevented",
-        lastScan: recentResults[0].timestamp,
-        cooldown: "Please wait 5 minutes between scans"
-      });
+    if (existing.length > 0) {
+      // 2. Update existing record's timestamp
+      const updateQuery = "UPDATE attendance SET timestamp = NOW() WHERE uid = ?";
+      await db.promise().query(updateQuery, [uid]);
+      return res.json({ message: "Scan time updated successfully!" });
+    } else {
+      // 3. Insert new record if doesn't exist
+      const insertQuery = "INSERT INTO attendance (uid, name) VALUES (?, ?)";
+      await db.promise().query(insertQuery, [uid, name]);
+      return res.json({ message: "New worker registered successfully!" });
     }
-
-    // 2. If no recent scan, either update or insert
-    const updateQuery = `
-      INSERT INTO attendance (uid, name, timestamp)
-      VALUES (?, ?, NOW())
-      ON DUPLICATE KEY UPDATE timestamp = NOW()
-    `;
-
-    const [result] = await db.promise().query(updateQuery, [uid, name]);
-
-    if (result.affectedRows === 1) {
-      if (result.insertId) {
-        // New record was inserted
-        return res.json({ message: "New attendance recorded successfully!" });
-      } else {
-        // Existing record was updated
-        return res.json({ message: "Attendance timestamp updated successfully!" });
-      }
-    }
-
-    return res.status(500).json({ error: "Failed to record attendance" });
-
   } catch (err) {
     console.error("Database Error:", err);
     return res.status(500).json({ error: "Database operation failed" });
