@@ -54,13 +54,7 @@ app.get('/', (req, res) => {
 
 // Fetch all attendance records
 app.get("/api/attendance", (req, res) => {
-  const query = `
-    SELECT id, uid, name, MAX(timestamp) as last_scan_time
-    FROM attendance
-    GROUP BY uid
-    ORDER BY last_scan_time DESC
-  `;
-  
+  const query = "SELECT * FROM attendance";
   db.query(query, (err, results) => {
     if (err) {
       console.error("Database Query Failed:", err);
@@ -70,7 +64,9 @@ app.get("/api/attendance", (req, res) => {
   });
 });
 
-// Update the attendance endpoint to better handle duplicates
+// Add attendance entry
+// Update the attendance endpoint
+// Update the attendance endpoint to prevent duplicates
 app.post("/api/attendance", (req, res) => {
   const { uid, name } = req.body;
 
@@ -78,12 +74,12 @@ app.post("/api/attendance", (req, res) => {
     return res.status(400).json({ error: "Missing required fields" });
   }
 
-  // First check if there's a recent entry for this UID (within last minute)
+  // First check if the UID already has a recent entry (within 1 minute)
   const checkQuery = `
     SELECT * FROM attendance 
     WHERE uid = ? 
     AND timestamp > DATE_SUB(NOW(), INTERVAL 1 MINUTE)
-    ORDER BY timestamp DESC
+    ORDER BY timestamp DESC 
     LIMIT 1
   `;
   
@@ -96,12 +92,12 @@ app.post("/api/attendance", (req, res) => {
     if (results.length > 0) {
       // Recent entry exists, don't create a new one
       return res.json({ 
-        message: "Duplicate scan ignored (recent entry exists)",
-        existingRecord: results[0]
+        message: "Recent scan already recorded", 
+        lastScan: results[0].timestamp 
       });
     } else {
       // No recent entry, check if UID exists at all
-      const uidCheckQuery = "SELECT * FROM attendance WHERE uid = ? LIMIT 1";
+      const uidCheckQuery = "SELECT * FROM attendance WHERE uid = ?";
       db.query(uidCheckQuery, [uid], (err, uidResults) => {
         if (err) {
           console.error("Database Query Failed:", err);
@@ -109,18 +105,14 @@ app.post("/api/attendance", (req, res) => {
         }
 
         if (uidResults.length > 0) {
-          // UID exists but not recent, update the name and timestamp
-          const updateQuery = `
-            UPDATE attendance 
-            SET name = ?, timestamp = NOW() 
-            WHERE uid = ?
-          `;
-          db.query(updateQuery, [name, uid], (err, result) => {
+          // UID exists but not recent, update the timestamp
+          const updateQuery = "UPDATE attendance SET timestamp = NOW() WHERE uid = ?";
+          db.query(updateQuery, [uid], (err, result) => {
             if (err) {
               console.error("Database Update Failed:", err);
               return res.status(500).json({ error: "Failed to update attendance" });
             }
-            res.json({ message: "Attendance updated successfully!" });
+            res.json({ message: "Attendance timestamp updated successfully!" });
           });
         } else {
           // UID doesn't exist, insert new record
