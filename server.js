@@ -215,7 +215,7 @@ app.post('/api/fence/breach', (req, res) => {
     
     const newAlert = {
       type: "GEOFENCE",
-      device_id: device_id || "unknown",
+      device_id: device_id || "87",
       lat: lat || null,
       lon: lon || null,
       timestamp: new Date().toISOString()
